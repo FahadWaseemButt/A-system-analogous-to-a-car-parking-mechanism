@@ -1,0 +1,157 @@
+// A system analogous to a car parking mechanism
+// Fahad Waseem Butt
+// EEE 212 - Bilkent University
+
+#include "mbed.h"
+#include "TextLCD.h"
+#include "Keypad.h"
+#include "ultrasonic.h"
+#include "millis.h"                 // This library is used to avoid code blocking due to wait() function
+                                                        // millis() is a function that returns the number of milliseconds that
+                                                        // have passed since program start.
+
+Keypad kpad(PTC4, PTC3, PTC0, PTC7, PTC11, PTC10, PTC6, PTC5);                  // Assign hardware pin numbers as per code req
+TextLCD my_lcd(PTE20, PTE21, PTE22, PTE23, PTE29, PTE30, TextLCD::LCD16x2);     // Assign hardware pin numbers as per code req
+
+uint32_t LED_Millis = 0;                                                        // Define and initialize variables  
+float intensity[10] = {0.0f, 0.20f, 0.40f, 0.60f, 0.80f, 1.0f, 0.8f, 0.6f, 0.4f, 0.2f};         // Brightness levels
+uint8_t index = 0;
+    
+void uss_dist(int sensed_dist){
+                                                    //dist_mm = sensed_dist;
+}
+
+ultrasonic uss(PTD4, PTA12, .1, 1, &uss_dist);      // Assign Trigger pin PTD4, Echo pin PTA12, Update 0.1 sec,
+                                                    // Timeout after 1 sec, call uss_dist when distance changes
+
+int main()
+{
+    PwmOut Red_LED(PTD5);                                       // Assign hardware pin/Name to Red external LED 
+    PwmOut Green_LED(PTA13);                                    // Assign hardware pin/Name to Green external LED
+      
+    PwmOut ledGreen(LED_GREEN);                                 // Assign onboard Tri colour LED (Green) control name
+    PwmOut ledRed(LED_RED);                                     // Assign onboard Tri colour LED (Red) control name
+    PwmOut ledBlue(LED_BLUE);                                   // Assign onboard Tri colour LED (Blue) control name
+    
+    float dist_mm=0, dist_cm=0, dist_prev=0;                    // Define/initialise variables (float)
+    int n = 0;                                                  // Define/initialize variable "n" as int
+    my_lcd.cls();                                               // Clear LCD 
+    wait(0.001);                                                // Delay for 0.001 sec
+    
+    my_lcd.locate(0,0);                                         // Move to First Row/Column of LCD display
+    my_lcd.printf("  Enter  Range  ");
+    my_lcd.locate(0,1);                                         // Move to next line of LCD (2nd Row, 1st Column)
+    
+    // KEYPAD ENTRY START
+    char key;                                                   // Define variable "key" as character
+    int released = 1;                                           // Define variable "released" and assign value = 1
+    char store_char[4];                                         // Define an array "store_char" of length 4 
+    int j = 0 ;                                                 // Define "j" as int for loop purpose
+    while(j<4){                                                 // Loop 4 times
+        key = kpad.ReadKey();                                   // Read the current key pressed
+        
+        if(key == '\0')                                         // All keys released
+        released = 1;                                           // Set the flag when all keys are released
+        
+        if((key != '\0') && (released == 1)) {                  // If a key is Pressed AND previous key was released
+        
+            if (key == '#'){                                    // If '#' is pressed break out of loop (exit keypad entry)
+                break;
+            }
+            else{
+                my_lcd.printf("%c", key);                       // Store keypad entry character in variable "key"
+            }
+            
+            store_char[j] = key;                                // Populate store_char array with inpit keypad characters
+            j++;         
+            released = 0;                                       // Clear the flag to indicate that key is still pressed
+        }
+    }              
+    sscanf(store_char, "%d", &n);                               // Reads data from "store_char" (specify as double) and stores in integer "n"
+    my_lcd.cls();
+    wait(0.001);
+    my_lcd.printf("Set Value=%3d cm", n);                       // Display Set value (stored in "n") input by user on LCD
+    wait(1);
+    // KEYPAD ENTRY END
+    
+    uss.startUpdates();                                         // Get distance sensor updates 
+    millisStart();                                              // Call milliStart() function to get millseconds elapsed
+    LED_Millis = millis();                                      // Define variable to store milli second value
+    my_lcd.cls();
+    wait(0.001);
+    
+    while(1)                                                    // Infinite loop
+    {   uss.checkDistance();                                    // Call checkDistance() function
+        dist_mm = uss.getCurrentDistance();                     // Read distance sensed by ultrasonic sensor
+        dist_cm = dist_mm/10;                                   // Convert mm to cm     
+        my_lcd.locate(0,0);                                     // Move to First Row/Column of LCD display
+        my_lcd.printf("Dist = %5.1f cm ", dist_cm);                // Display distance in cm
+        
+                                                                // Apply CODE LOGIC based on decision   
+        if (dist_cm > n){                                       // Is USS distance > input distance (n)
+            Green_LED = 0;                                      // If Yes then turn Green/Red LEDs OFF
+            Red_LED = 0;
+            wait(0.01);
+            index = 0;                                          // Set value of index to 0
+            LED_Millis = millis();                              // Call millis() to store value in LED_Millis variable
+        }       
+        else if ((dist_cm > (2*n)/3) && (dist_cm <= n)){        // If USS distance > 2n/3 AND <= n 
+            Green_LED = 1;                                      // Turn Green LED ON
+            Red_LED = 0;
+            wait(0.01);
+            index = 0;
+            LED_Millis = millis();
+        }       
+        else if ((dist_cm > n/3) && (dist_cm <= (2*n)/3)){      // if USS distance > (n/3) AND <= 2n/3
+            Green_LED = 0;                                      // Turn Green LED OFF
+            if((millis() - LED_Millis) >= 100)                  // If 100 ms have passed
+            {                
+                Red_LED = intensity[index++];                   // Send intensity value as defined in "intensity" array above in a loop
+                if(index >= 10) index = 0;                      // If all values sent (with 100 ms delay),initialise index to repeat loop
+                LED_Millis = millis();                          // Update LED_millis for later comparison
+            }
+        }
+        else if (dist_cm <= n/3){                               // USS distance <= n/3, Turn ON Red LED (Stable, no PWM)
+            Red_LED = 1.0;                                                                  
+            Green_LED = 0;                                      // Turn OFF Green LED
+            wait(0.01);
+            index = 0;
+            LED_Millis = millis();           
+        } 
+        
+        // START: Code to detect if object moving forward or backward
+        
+        if(dist_prev > dist_cm)                             // Moving Backward
+            
+        {
+            ledRed = 0;
+            ledBlue = 1;                                    // Turn ON Blue LED  
+            ledGreen = 0;
+        
+            wait(0.1); 
+        }
+        else if (dist_prev < dist_cm)                       // Moving Forward
+             
+        {
+            ledRed = 1;
+            ledBlue = 0;                                    // Turn ON LED (Yellow)  
+            ledGreen = 1;
+            
+            wait(0.1);
+            
+        }
+        else
+        {   
+            ledRed.pulsewidth(1);                 
+            ledGreen.pulsewidth(1);                         // LED OFF
+            ledBlue.pulsewidth(1);              
+            wait(0.2);                    
+        }
+        // END:   Code to detect if object moving forward or backward
+            
+            dist_prev = dist_cm;            // Store distance value in a temporary variable
+            wait(0.001);
+            
+    }                                       // while(1) ends here
+    
+} //END MAIN
